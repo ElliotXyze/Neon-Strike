@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="sv">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>NEON STRIKE</title>
+  <style>
+    :root { color-scheme: dark; }
+    * { box-sizing: border-box; }
+    body { margin: 0; min-height: 100vh; display: grid; place-items: center; overflow: hidden; background: radial-gradient(circle at 50% 0%, #17244d, #050812 58%); color: #eaf8ff; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+    #shell { width: min(94vw, 960px); }
+    #topbar { display: flex; justify-content: space-between; align-items: end; gap: 14px; margin: 0 5px 10px; letter-spacing: .08em; }
+    h1 { font-size: clamp(19px, 3vw, 31px); margin: 0; color: #7dffe7; text-shadow: 0 0 14px #14dca8; }
+    #stats { display: flex; gap: 16px; font-size: clamp(11px, 1.7vw, 15px); color: #b9ceff; }
+    #game { width: 100%; aspect-ratio: 16 / 9; position: relative; overflow: hidden; border: 1px solid #41e9cb; box-shadow: 0 0 0 4px #0b1831, 0 0 38px #0ca98f55; background: #070c1b; touch-action: none; cursor: crosshair; }
+    canvas { width: 100%; height: 100%; display: block; }
+    #overlay { position: absolute; inset: 0; display: grid; place-items: center; text-align: center; background: linear-gradient(#050a13bb, #060915dd); padding: 24px; }
+    #panel { max-width: 540px; }
+    #panel h2 { color: #ff5ca8; font-size: clamp(30px, 7vw, 58px); line-height: 1; margin: 0 0 15px; text-shadow: 0 0 20px #ff398c88; }
+    #panel p { color: #d4ddff; font-size: clamp(13px, 2vw, 17px); line-height: 1.65; margin: 0 auto 24px; }
+    button { border: 1px solid #7dffe7; color: #07121c; background: #7dffe7; padding: 13px 22px; font: inherit; font-weight: 800; letter-spacing: .09em; cursor: pointer; box-shadow: 0 0 20px #30ffc588; }
+    button:hover { transform: translateY(-1px); background: #fff; }
+    #hint { color: #7084b3; text-align: center; margin: 11px 0 0; font-size: 12px; }
+    @media (max-width: 550px) { #topbar { align-items: center; } #stats { gap: 8px; flex-wrap: wrap; justify-content: end; } }
+  </style>
+</head>
+<body>
+  <main id="shell">
+    <div id="topbar"><h1>NEON STRIKE</h1><div id="stats"><span>POÄNG <b id="score">00000</b></span><span>HÄLSA <b id="health">100</b></span><span>VÅG <b id="wave">1</b></span></div></div>
+    <section id="game" aria-label="Neon Strike shooter-spel"><canvas id="canvas"></canvas><div id="overlay"><div id="panel"><h2>NEON STRIKE</h2><p>Överlev robotinvasionen. Sikta med musen och håll inne för att skjuta. Rör dig med <strong>WASD</strong> eller piltangenterna.</p><button id="start">STARTA UPPDRAG</button></div></div></section>
+    <p id="hint">Klicka i spelrutan för att börja · Mål: slå ditt rekord</p>
+  </main>
+  <script>
+    const canvas = document.querySelector('#canvas'), ctx = canvas.getContext('2d');
+    const game = document.querySelector('#game'), overlay = document.querySelector('#overlay');
+    const scoreEl = document.querySelector('#score'), healthEl = document.querySelector('#health'), waveEl = document.querySelector('#wave');
+    let W, H, dpr, player, enemies, bullets, particles, stars, keys = {}, pointer = {x: 0, y: 0, down: false};
+    let score = 0, wave = 1, health = 100, running = false, last = 0, spawnTimer = 0, shotTimer = 0, nextWaveTimer = 0;
+    const clamp = (n, min, max) => Math.max(min, Math.min(max, n));
+    function resize() { const r = game.getBoundingClientRect(); dpr = devicePixelRatio || 1; W = r.width; H = r.height; canvas.width = W*dpr; canvas.height = H*dpr; ctx.setTransform(dpr,0,0,dpr,0,0); if (!player) resetWorld(); }
+    function resetWorld() { player = {x: W*.5, y:H*.72, r: 17, angle: -Math.PI/2, inv:0}; stars = Array.from({length: 105}, () => ({x:Math.random()*W,y:Math.random()*H,z:Math.random()*.9+.1})); }
+    function begin() { score=0; wave=1; health=100; enemies=[]; bullets=[]; particles=[]; spawnTimer=0; shotTimer=0; nextWaveTimer=0; resetWorld(); running=true; overlay.style.display='none'; updateHUD(); last=performance.now(); requestAnimationFrame(loop); }
+    function updateHUD() { scoreEl.textContent = String(score).padStart(5,'0'); healthEl.textContent = Math.max(0,health); waveEl.textContent = wave; }
+    function spawnEnemy() { const side = Math.floor(Math.random()*4), margin=35; let x,y; if(side===0){x=Math.random()*W;y=-margin}else if(side===1){x=W+margin;y=Math.random()*H}else if(side===2){x=Math.random()*W;y=H+margin}else{x=-margin;y=Math.random()*H}; const tank = Math.random() < Math.min(.24, wave*.025); const r=tank?24:14+Math.random()*5; enemies.push({x,y,r,hp:tank?4:1,speed:(tank?36:58)+wave*3,color:tank?'#ffb347':'#ff4f9b',spin:Math.random()*6}); }
+    function shoot() { if (shotTimer>0) return; shotTimer=.13; const dx=pointer.x-player.x, dy=pointer.y-player.y, a=Math.atan2(dy,dx); player.angle=a; bullets.push({x:player.x+Math.cos(a)*20,y:player.y+Math.sin(a)*20,vx:Math.cos(a)*590,vy:Math.sin(a)*590,r:4,life:1.1}); for(let i=0;i<4;i++) particles.push({x:player.x+Math.cos(a)*21,y:player.y+Math.sin(a)*21,vx:Math.cos(a)*Math.random()*80,vy:Math.sin(a)*Math.random()*80,life:.16,size:2,color:'#bffff4'}); }
+    function boom(x,y,color,count=14) { for(let i=0;i<count;i++){ const a=Math.random()*Math.PI*2,s=40+Math.random()*180; particles.push({x,y,vx:Math.cos(a)*s,vy:Math.sin(a)*s,life:.35+Math.random()*.45,size:2+Math.random()*4,color}); } }
+    function hurt(amount) { if(player.inv>0)return; health-=amount; player.inv=.75; boom(player.x,player.y,'#fff',25); updateHUD(); if(health<=0) end(); }
+    function end() { running=false; document.querySelector('#panel').innerHTML=`<h2>UPPDRAG AVBRUTET</h2><p>Du nådde <strong>${score}</strong> poäng och våg <strong>${wave}</strong>.<br>De kommer tillbaka snabbare nästa gång.</p><button id="start">FÖRSÖK IGEN</button>`; document.querySelector('#start').onclick=begin; overlay.style.display='grid'; }
+    function tick(dt) {
+      const move=(keys.KeyD||keys.ArrowRight?1:0)-(keys.KeyA||keys.ArrowLeft?1:0), vert=(keys.KeyS||keys.ArrowDown?1:0)-(keys.KeyW||keys.ArrowUp?1:0); const len=Math.hypot(move,vert)||1;
+      player.x=clamp(player.x+move/len*245*dt,20,W-20); player.y=clamp(player.y+vert/len*245*dt,20,H-20); player.angle=Math.atan2(pointer.y-player.y,pointer.x-player.x); player.inv=Math.max(0,player.inv-dt);
+      if(pointer.down||keys.Space)shoot(); shotTimer=Math.max(0,shotTimer-dt);
+      spawnTimer-=dt; const target=5+wave*2; if(enemies.length<target && spawnTimer<=0){spawnEnemy();spawnTimer=Math.max(.14,.72-wave*.028)}
+      for(const b of bullets){b.x+=b.vx*dt;b.y+=b.vy*dt;b.life-=dt} bullets=bullets.filter(b=>b.life>0&&b.x>-20&&b.x<W+20&&b.y>-20&&b.y<H+20);
+      for(const e of enemies){const a=Math.atan2(player.y-e.y,player.x-e.x);e.x+=Math.cos(a)*e.speed*dt;e.y+=Math.sin(a)*e.speed*dt;e.spin+=dt*5;if(Math.hypot(e.x-player.x,e.y-player.y)<e.r+player.r){hurt(e.hp>1?20:12);e.hp=0;}}
+      for(const b of bullets) for(const e of enemies) if(e.hp>0&&Math.hypot(b.x-e.x,b.y-e.y)<b.r+e.r){b.life=0;e.hp--;boom(b.x,b.y,'#80ffe2',4);if(e.hp<=0){score+=e.r>20?50:10;boom(e.x,e.y,e.color,e.r>20?25:13);updateHUD();}}
+      enemies=enemies.filter(e=>e.hp>0); particles.forEach(p=>{p.x+=p.vx*dt;p.y+=p.vy*dt;p.vx*=.94;p.vy*=.94;p.life-=dt});particles=particles.filter(p=>p.life>0);
+      const newWave=1+Math.floor(score/180); if(newWave>wave){wave=newWave;updateHUD();boom(player.x,player.y,'#7dffe7',35)}
+      stars.forEach(s=>{s.y+=s.z*(20+wave*2)*dt;if(s.y>H){s.y=0;s.x=Math.random()*W}});
+    }
+    function draw() { ctx.clearRect(0,0,W,H); const bg=ctx.createLinearGradient(0,0,0,H);bg.addColorStop(0,'#101c3e');bg.addColorStop(1,'#050711');ctx.fillStyle=bg;ctx.fillRect(0,0,W,H);
+      ctx.fillStyle='#b9d5ff'; stars.forEach(s=>{ctx.globalAlpha=s.z;ctx.fillRect(s.x,s.y,s.z*2,s.z*2)});ctx.globalAlpha=1;
+      ctx.strokeStyle='#1b3862';ctx.globalAlpha=.32;for(let x=-H;x<W+H;x+=48){ctx.beginPath();ctx.moveTo(x,H);ctx.lineTo(W*.5+(x-W*.5)*.18,H*.37);ctx.stroke()}ctx.globalAlpha=1;
+      for(const p of particles){ctx.globalAlpha=Math.min(1,p.life*2);ctx.fillStyle=p.color;ctx.shadowBlur=12;ctx.shadowColor=p.color;ctx.fillRect(p.x-p.size/2,p.y-p.size/2,p.size,p.size)}ctx.shadowBlur=0;ctx.globalAlpha=1;
+      for(const b of bullets){ctx.fillStyle='#bffff4';ctx.shadowColor='#55ffe2';ctx.shadowBlur=16;ctx.beginPath();ctx.arc(b.x,b.y,b.r,0,7);ctx.fill()}ctx.shadowBlur=0;
+      for(const e of enemies){ctx.save();ctx.translate(e.x,e.y);ctx.rotate(e.spin);ctx.strokeStyle=e.color;ctx.fillStyle='#1a1428';ctx.lineWidth=2;ctx.shadowColor=e.color;ctx.shadowBlur=13;ctx.beginPath();ctx.moveTo(0,-e.r);ctx.lineTo(e.r*.86,0);ctx.lineTo(0,e.r);ctx.lineTo(-e.r*.86,0);ctx.closePath();ctx.fill();ctx.stroke();ctx.fillStyle=e.color;ctx.beginPath();ctx.arc(0,0,e.r*.3,0,7);ctx.fill();ctx.restore()}ctx.shadowBlur=0;
+      if(player.inv<=0||Math.floor(player.inv*13)%2===0){ctx.save();ctx.translate(player.x,player.y);ctx.rotate(player.angle);ctx.fillStyle='#87fff1';ctx.shadowColor='#4fffd2';ctx.shadowBlur=20;ctx.beginPath();ctx.moveTo(25,0);ctx.lineTo(-14,-13);ctx.lineTo(-6,0);ctx.lineTo(-14,13);ctx.closePath();ctx.fill();ctx.fillStyle='#17335a';ctx.fillRect(-3,-4,17,8);ctx.restore()}ctx.shadowBlur=0;
+      if(!running){ctx.fillStyle='#00000044';ctx.fillRect(0,0,W,H)}
+    }
+    function loop(now){if(!running)return;const dt=Math.min(.04,(now-last)/1000);last=now;tick(dt);draw();requestAnimationFrame(loop)}
+    function point(e){const r=canvas.getBoundingClientRect();pointer.x=(e.clientX-r.left)*W/r.width;pointer.y=(e.clientY-r.top)*H/r.height}
+    addEventListener('resize',resize);addEventListener('keydown',e=>{keys[e.code]=true;if(['Space','ArrowUp','ArrowDown','ArrowLeft','ArrowRight'].includes(e.code))e.preventDefault()});addEventListener('keyup',e=>keys[e.code]=false);game.addEventListener('pointermove',point);game.addEventListener('pointerdown',e=>{if(!running)return;point(e);pointer.down=true;game.setPointerCapture?.(e.pointerId)});game.addEventListener('pointerup',()=>{if(running)pointer.down=false});document.querySelector('#start').onclick=begin;resize();draw();
+  </script>
+</body>
+</html>
